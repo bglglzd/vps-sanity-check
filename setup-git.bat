@@ -1,0 +1,59 @@
+@echo off
+REM Скрипт для быстрой настройки Git и загрузки на GitHub (Windows)
+REM Использование: setup-git.bat YOUR_GITHUB_USERNAME
+
+if "%1"=="" (
+    echo Использование: setup-git.bat YOUR_GITHUB_USERNAME
+    echo Пример: setup-git.bat bglglzd
+    exit /b 1
+)
+
+set GITHUB_USERNAME=%1
+set REPO_NAME=vps-sanity-check
+
+echo 🔧 Настройка Git репозитория...
+
+REM Проверка наличия Git
+where git >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Git не установлен!
+    echo Установите Git: https://git-scm.com/download/win
+    exit /b 1
+)
+
+REM Инициализация
+echo 📦 Инициализация Git...
+git init
+
+REM Добавление файлов
+echo ➕ Добавление файлов...
+git add .
+
+REM Первый коммит
+echo 💾 Создание первого коммита...
+git commit -m "Initial commit: VPS Sanity Check v1.0.0"
+
+REM Переименование ветки
+echo 🌿 Настройка ветки main...
+git branch -M main
+
+REM Добавление remote
+echo 🔗 Добавление remote репозитория...
+git remote add origin "https://github.com/%GITHUB_USERNAME%/%REPO_NAME%.git" 2>nul || (
+    echo ⚠️  Remote уже существует, обновляю URL...
+    git remote set-url origin "https://github.com/%GITHUB_USERNAME%/%REPO_NAME%.git"
+)
+
+echo.
+echo ✅ Git репозиторий настроен!
+echo.
+echo 📝 Следующие шаги:
+echo 1. Создайте репозиторий на GitHub: https://github.com/new
+echo    Название: %REPO_NAME%
+echo    НЕ ставьте галочки на инициализацию!
+echo.
+echo 2. Загрузите код:
+echo    git push -u origin main
+echo.
+echo ⚠️  При необходимости используйте Personal Access Token вместо пароля
+
