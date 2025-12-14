@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# VPS Sanity Check v1.1.0
+# A comprehensive security audit tool for VPS instances
+# Author: bglglzd
+#
+# This tool performs security checks that can be done from inside a VPS.
+# It does NOT claim to detect hypervisor-level access by the provider.
+
 set -uo pipefail
 
 # Get script directory
@@ -17,7 +24,7 @@ main() {
   # Check if running as root
   check_root
   
-  # Run all checks
+  # Run all security checks
   check_os
   check_users
   check_sudo
@@ -29,10 +36,9 @@ main() {
   check_integrity
   check_filesystem
   
-  # Show summary
+  # Show final summary
   summary
 }
 
 # Run main function
 main "$@"
-
