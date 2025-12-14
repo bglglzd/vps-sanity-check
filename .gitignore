@@ -16,7 +16,3 @@ Thumbs.db
 tmp/
 temp/
 
-# Git setup scripts (optional - можно оставить или удалить)
-# setup-git.sh
-# setup-git.bat
-
