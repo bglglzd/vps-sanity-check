@@ -13,8 +13,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source libraries
+# shellcheck source=lib/colors.sh
 source "$SCRIPT_DIR/lib/colors.sh"
+# shellcheck source=lib/helpers.sh
 source "$SCRIPT_DIR/lib/helpers.sh"
+# shellcheck source=lib/checks.sh
 source "$SCRIPT_DIR/lib/checks.sh"
 
 # Main execution
