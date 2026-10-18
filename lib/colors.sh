@@ -19,12 +19,18 @@ color() {
 }
 
 # Color definitions - empty if not TTY, actual codes if TTY
+# NOTE: CYAN, BOLD and DIM are not referenced inside this file itself, but they
+# are part of this module's public API used by helpers.sh and checks.sh
+# (ShellCheck only sees this file in isolation, hence the targeted disables).
 GREEN=$(color "\033[32m")
 RED=$(color "\033[31m")
 YELLOW=$(color "\033[33m")
 BLUE=$(color "\033[34m")
+# shellcheck disable=SC2034  # Exported API: used by helpers.sh and checks.sh
 CYAN=$(color "\033[36m")
+# shellcheck disable=SC2034  # Exported API: used by helpers.sh (banner/section headers)
 BOLD=$(color "\033[1m")
+# shellcheck disable=SC2034  # Exported API: used by helpers.sh (sub_section)
 DIM=$(color "\033[2m")
 RESET=$(color "\033[0m")
 
