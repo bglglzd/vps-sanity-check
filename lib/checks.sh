@@ -3,7 +3,9 @@
 # VPS Sanity Check - Security Checks Module
 # All security checks are implemented here
 
+# shellcheck source=lib/colors.sh
 source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
+# shellcheck source=lib/helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 
 # Check OS and system information
@@ -11,6 +13,9 @@ check_os() {
   section "SYSTEM"
   
   if [[ -f /etc/os-release ]]; then
+    # /etc/os-release only exists on the target Linux system; it cannot be
+    # resolved during static analysis, so tell ShellCheck not to follow it.
+    # shellcheck source=/dev/null
     source /etc/os-release
     ok "OS detected: ${PRETTY_NAME:-$NAME}"
   else
@@ -18,13 +23,16 @@ check_os() {
     return
   fi
   
-  local kernel=$(uname -r)
+  local kernel
+  kernel=$(uname -r)
   ok "Kernel: $kernel"
   
-  local uptime=$(get_uptime)
+  local uptime
+  uptime=$(get_uptime)
   ok "Uptime: $uptime"
   
-  local hostname=$(hostname 2>/dev/null || echo "unknown")
+  local hostname
+  hostname=$(hostname 2>/dev/null || echo "unknown")
   info "Hostname: $hostname"
 }
 
@@ -54,7 +62,8 @@ check_users() {
       
       # Check password status for system users (INFO level)
       if [[ -f /etc/shadow ]]; then
-        local passwd_status=$(awk -F: -v u="$username" '$1 == u {print $2}' /etc/shadow 2>/dev/null)
+        local passwd_status
+        passwd_status=$(awk -F: -v u="$username" '$1 == u {print $2}' /etc/shadow 2>/dev/null)
         if [[ -z "$passwd_status" || "$passwd_status" == "!" || "$passwd_status" == "*" ]]; then
           no_passwd_info+=("$username")
         fi
@@ -70,7 +79,8 @@ check_users() {
     
     # Check password status for regular users (WARN level)
     if [[ -f /etc/shadow ]]; then
-      local passwd_status=$(awk -F: -v u="$username" '$1 == u {print $2}' /etc/shadow 2>/dev/null)
+      local passwd_status
+      passwd_status=$(awk -F: -v u="$username" '$1 == u {print $2}' /etc/shadow 2>/dev/null)
       if [[ -z "$passwd_status" || "$passwd_status" == "!" || "$passwd_status" == "*" ]]; then
         no_passwd_warn+=("$username")
       fi
@@ -88,8 +98,10 @@ check_users() {
   if [[ ${#suspicious_users[@]} -gt 0 ]]; then
     warn "Interactive user accounts (UID >= 1000 with login shell):"
     for user in "${suspicious_users[@]}"; do
-      local uid=$(id -u "$user" 2>/dev/null || echo "?")
-      local shell=$(getent passwd "$user" | cut -d: -f7)
+      local uid
+      uid=$(id -u "$user" 2>/dev/null || echo "?")
+      local shell
+      shell=$(getent passwd "$user" | cut -d: -f7)
       print_list_item "$user (UID: $uid, Shell: $shell)"
     done
   else
@@ -121,8 +133,10 @@ check_sudo() {
     return
   fi
   
-  local sudo_users=$(getent group sudo 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$' || true)
-  local sudo_count=$(echo "$sudo_users" | grep -c . || echo "0")
+  local sudo_users
+  sudo_users=$(getent group sudo 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$' || true)
+  local sudo_count
+  sudo_count=$(echo "$sudo_users" | grep -c . || echo "0")
   
   if [[ $sudo_count -eq 0 ]]; then
     info "No users in sudo group"
@@ -135,7 +149,8 @@ check_sudo() {
   
   # Check for custom sudoers entries (informational)
   if [[ -f /etc/sudoers ]]; then
-    local sudoers_entries=$(grep -vE '^#|^$|^Defaults|^%' /etc/sudoers 2>/dev/null | grep -v '^@' || true)
+    local sudoers_entries
+    sudoers_entries=$(grep -vE '^#|^$|^Defaults|^%' /etc/sudoers 2>/dev/null | grep -v '^@' || true)
     if [[ -n "$sudoers_entries" ]]; then
       info "Custom sudoers entries found (review recommended)"
     fi
@@ -186,7 +201,8 @@ check_ssh() {
     [[ -z "$username" || -z "$home" ]] && continue
     local user_keys="$home/.ssh/authorized_keys"
     if [[ -f "$user_keys" ]]; then
-      local count=$(grep -c "^ssh-" "$user_keys" 2>/dev/null || echo "0")
+      local count
+      count=$(grep -c "^ssh-" "$user_keys" 2>/dev/null || echo "0")
       if [[ $count -gt 0 ]]; then
         ((total_keys += count))
         key_users+=("$username: $count")
@@ -204,7 +220,8 @@ check_ssh() {
   fi
   
   # Check SSH port (informational)
-  local ssh_port=$(grep -E "^Port\s+" "$sshd_config" | awk '{print $2}' | head -1)
+  local ssh_port
+  ssh_port=$(grep -E "^Port\s+" "$sshd_config" | awk '{print $2}' | head -1)
   if [[ -n "$ssh_port" && "$ssh_port" != "22" ]]; then
     info "SSH listening on non-standard port: $ssh_port"
   fi
@@ -219,7 +236,8 @@ check_network() {
     return
   fi
   
-  local listening=$(ss -tulpn 2>/dev/null | grep LISTEN || true)
+  local listening
+  listening=$(ss -tulpn 2>/dev/null | grep LISTEN || true)
   
   if [[ -z "$listening" ]]; then
     info "No listening ports found"
@@ -234,7 +252,8 @@ check_network() {
     [[ -z "$line" ]] && continue
     
     # Extract address:port from the 5th field
-    local addr_port=$(echo "$line" | awk '{print $5}')
+    local addr_port
+    addr_port=$(echo "$line" | awk '{print $5}')
     
     # Skip if localhost only
     if echo "$addr_port" | grep -qE "^127\.0\.0\.1:|^::1:"; then
@@ -242,8 +261,10 @@ check_network() {
     fi
     
     # Extract port (everything after last colon)
-    local port=$(echo "$addr_port" | awk -F: '{print $NF}' | awk '{print $1}')
-    local protocol=$(echo "$line" | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
+    local port
+    port=$(echo "$addr_port" | awk -F: '{print $NF}' | awk '{print $1}')
+    local protocol
+    protocol=$(echo "$line" | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
     
     # Extract process name from last field
     local process="unknown"
@@ -299,9 +320,11 @@ check_cron() {
   section "CRON / AUTOSTART"
   
   # Root crontab
-  local root_cron=$(crontab -l -u root 2>/dev/null || true)
+  local root_cron
+  root_cron=$(crontab -l -u root 2>/dev/null || true)
   if [[ -n "$root_cron" ]]; then
-    local root_cron_lines=$(echo "$root_cron" | grep -vE '^#|^$' | wc -l)
+    local root_cron_lines
+    root_cron_lines=$(echo "$root_cron" | grep -cvE '^#|^$')
     if [[ $root_cron_lines -gt 0 ]]; then
       info "Root crontab entries: $root_cron_lines"
       while IFS= read -r line; do
@@ -321,7 +344,8 @@ check_cron() {
   local total_cron_files=0
   for dir in "${cron_dirs[@]}"; do
     if [[ -d "$dir" ]]; then
-      local files=$(find "$dir" -type f 2>/dev/null | wc -l)
+      local files
+      files=$(find "$dir" -type f 2>/dev/null | wc -l)
       ((total_cron_files += files))
     fi
   done
@@ -330,7 +354,8 @@ check_cron() {
   fi
   
   # Check for suspicious cron entries (downloading from internet)
-  local suspicious_cron=$(grep -rE "(wget|curl|bash|sh)\s+.*https?://" /etc/cron* 2>/dev/null | grep -vE '^#|^$' || true)
+  local suspicious_cron
+  suspicious_cron=$(grep -rE "(wget|curl|bash|sh)\s+.*https?://" /etc/cron* 2>/dev/null | grep -vE '^#|^$' || true)
   if [[ -n "$suspicious_cron" ]]; then
     warn "Potentially suspicious cron entries (downloading from internet):"
     while IFS= read -r line; do
@@ -348,13 +373,16 @@ check_services() {
     return
   fi
   
-  local enabled_services=$(systemctl list-unit-files --type=service --state=enabled 2>/dev/null | grep -E "\.service$" | awk '{print $1}' || true)
-  local service_count=$(echo "$enabled_services" | grep -c . || echo "0")
+  local enabled_services
+  enabled_services=$(systemctl list-unit-files --type=service --state=enabled 2>/dev/null | grep -E "\.service$" | awk '{print $1}' || true)
+  local service_count
+  service_count=$(echo "$enabled_services" | grep -c . || echo "0")
   
   ok "Enabled services: $service_count"
   
   # Check for failed services
-  local failed_services=$(systemctl list-units --type=service --state=failed 2>/dev/null | grep -E "\.service$" | awk '{print $1}' || true)
+  local failed_services
+  failed_services=$(systemctl list-units --type=service --state=failed 2>/dev/null | grep -E "\.service$" | awk '{print $1}' || true)
   if [[ -n "$failed_services" ]]; then
     warn "Failed services detected:"
     while IFS= read -r service; do
@@ -369,8 +397,10 @@ check_integrity() {
   
   # Check with debsums if available
   if check_command "debsums"; then
-    local debsums_output=$(debsums -s 2>&1)
-    local debsums_errors=$(echo "$debsums_output" | grep -iE "FAILED|MISSING|changed|modified" || true)
+    local debsums_output
+    debsums_output=$(debsums -s 2>&1)
+    local debsums_errors
+    debsums_errors=$(echo "$debsums_output" | grep -iE "FAILED|MISSING|changed|modified" || true)
     
     if [[ -z "$debsums_errors" ]]; then
       ok "Package integrity: OK (debsums)"
@@ -399,7 +429,8 @@ check_integrity() {
   if [[ ${#unowned_bins[@]} -gt 0 ]]; then
     warn "Critical binaries not owned by any package:"
     for bin in "${unowned_bins[@]}"; do
-      local resolved=$(resolve_symlink "$bin")
+      local resolved
+      resolved=$(resolve_symlink "$bin")
       if [[ "$resolved" != "$bin" ]]; then
         info "  $bin → $resolved (symlink, checking resolved path)"
       else
@@ -421,11 +452,15 @@ check_processes() {
   fi
   
   # Count root processes (informational)
-  local root_proc_count=$(ps aux 2>/dev/null | awk '$1 == "root" {count++} END {print count+0}')
+  local root_proc_count
+  root_proc_count=$(ps aux 2>/dev/null | awk '$1 == "root" {count++} END {print count+0}')
   info "Processes running as root: $root_proc_count"
   
   # Check for suspicious process names (only real matches)
-  local suspicious_procs=$(ps aux 2>/dev/null | grep -iE "(backdoor|trojan|malware|virus|hack|exploit)" | grep -v grep || true)
+  local suspicious_procs
+  # shellcheck disable=SC2009  # We intentionally use `ps aux` (not pgrep) so the
+  # report can display the full ps line (user, CPU, command) for each match.
+  suspicious_procs=$(ps aux 2>/dev/null | grep -iE "(backdoor|trojan|malware|virus|hack|exploit)" | grep -v grep || true)
   if [[ -n "$suspicious_procs" ]]; then
     fail "Potentially suspicious processes detected:"
     while IFS= read -r line; do
@@ -444,7 +479,8 @@ check_filesystem() {
   
   for dir in "${sensitive_dirs[@]}"; do
     if [[ -d "$dir" ]]; then
-      local writable=$(find "$dir" -type f -perm -002 2>/dev/null | head -5 || true)
+      local writable
+      writable=$(find "$dir" -type f -perm -002 2>/dev/null | head -5 || true)
       if [[ -n "$writable" ]]; then
         if [[ "$found_writable" == false ]]; then
           warn "World-writable files in sensitive directories:"
@@ -462,7 +498,8 @@ check_filesystem() {
   fi
   
   # Check disk usage
-  local disk_usage=$(df -h / 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
+  local disk_usage
+  disk_usage=$(df -h / 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
   if [[ $disk_usage -gt 90 ]]; then
     warn "Disk usage: ${disk_usage}% (critical)"
   elif [[ $disk_usage -gt 80 ]]; then
@@ -476,8 +513,10 @@ check_filesystem() {
 summary() {
   section "RESULT"
   
-  local failures=$(get_failures)
-  local warnings=$(get_warnings)
+  local failures
+  failures=$(get_failures)
+  local warnings
+  warnings=$(get_warnings)
   
   if [[ $failures -gt 0 ]]; then
     echo ""
