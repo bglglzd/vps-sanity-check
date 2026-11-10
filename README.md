@@ -2,8 +2,6 @@
 
 🔐 **Minimalistic VPS security sanity checker**
 
-**Author:** bglglzd
-
 ## 🎯 Purpose
 
 Quickly and clearly verify that your VPS:
@@ -100,7 +98,7 @@ sudo ./sanity-check.sh
 ```
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║         VPS SANITY CHECK — by bglglzd                        ║
+║                    VPS SANITY CHECK                         ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -179,10 +177,6 @@ See [LICENSE](LICENSE) file for details.
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📧 Contact
-
-**Author:** bglglzd
 
 ---
 

@@ -2,7 +2,6 @@
 
 # VPS Sanity Check v1.1.0
 # A comprehensive security audit tool for VPS instances
-# Author: bglglzd
 #
 # This tool performs security checks that can be done from inside a VPS.
 # It does NOT claim to detect hypervisor-level access by the provider.
