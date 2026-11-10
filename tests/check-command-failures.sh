@@ -28,7 +28,10 @@ debsums() {
     unavailable) printf 'debsums: verification unavailable\n' >&2; return 1 ;;
   esac
 }
-is_package_owned() { return 0; }
+package_fixture_only=false
+dpkg() {
+  [[ $package_fixture_only == false ]] || [[ $1 == -S && $2 == "$fixture_dir/real/owned-fixture" ]]
+}
 
 check_case() {
   local name=$1 function=$2 expected=$3 forbidden=${4:-__never__}
@@ -77,12 +80,10 @@ else
 fi
 
 # The package owner can be recorded under /usr even when the leaf is not a symlink.
-# shellcheck source=lib/helpers.sh
-source "$ROOT/lib/helpers.sh"
 mkdir "$fixture_dir/real"
 touch "$fixture_dir/real/owned-fixture" "$fixture_dir/real/unowned-fixture"
 ln -s "$fixture_dir/real" "$fixture_dir/alias"
-dpkg() { [[ $1 == -S && $2 == "$fixture_dir/real/owned-fixture" ]]; }
+package_fixture_only=true
 if is_package_owned "$fixture_dir/alias/owned-fixture" && ! is_package_owned "$fixture_dir/alias/unowned-fixture"; then
   printf 'PASS package ownership resolves parent-directory symlinks\n'
   passed=$((passed + 1))
