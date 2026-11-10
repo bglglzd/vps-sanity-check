@@ -86,11 +86,8 @@ get_uptime() {
 # Resolve symlink to real path
 resolve_symlink() {
   local path="$1"
-  if [[ -L "$path" ]]; then
-    readlink -f "$path" 2>/dev/null || echo "$path"
-  else
-    echo "$path"
-  fi
+  # Parent directories can be symlinks too, for example /bin -> /usr/bin.
+  readlink -f -- "$path" 2>/dev/null || echo "$path"
 }
 
 # Check if file is owned by a package (handles symlinks)

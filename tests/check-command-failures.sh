@@ -76,5 +76,20 @@ else
   failed=$((failed + 1))
 fi
 
+# The package owner can be recorded under /usr even when the leaf is not a symlink.
+# shellcheck source=lib/helpers.sh
+source "$ROOT/lib/helpers.sh"
+mkdir "$fixture_dir/real"
+touch "$fixture_dir/real/owned-fixture" "$fixture_dir/real/unowned-fixture"
+ln -s "$fixture_dir/real" "$fixture_dir/alias"
+dpkg() { [[ $1 == -S && $2 == "$fixture_dir/real/owned-fixture" ]]; }
+if is_package_owned "$fixture_dir/alias/owned-fixture" && ! is_package_owned "$fixture_dir/alias/unowned-fixture"; then
+  printf 'PASS package ownership resolves parent-directory symlinks\n'
+  passed=$((passed + 1))
+else
+  printf 'FAIL package ownership resolves parent-directory symlinks\n'
+  failed=$((failed + 1))
+fi
+
 printf '%s passed; %s failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

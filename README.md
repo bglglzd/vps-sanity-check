@@ -166,7 +166,7 @@ Command failures in the service and package-integrity checks are reported as war
 bash tests/check-command-failures.sh
 ```
 
-These tests use synthetic `systemctl`, `getent` and `debsums` command fixtures and do not audit the host. They check real report functions, service-column parsing, empty groups, failed commands, warning/failure summary counters and UTF-8 section headings (`iconv` from the Ubuntu base utilities is used by the test). A disposable Ubuntu 24.04 container was also exercised; a fully booted VPS and the other advertised Ubuntu versions have not been tested by this change.
+These tests use synthetic `systemctl`, `getent`, `debsums` and `dpkg` command fixtures and do not audit the host. They check real report functions, service-column parsing, empty groups, failed commands, warning/failure summary counters, parent-directory symlinks in package ownership and UTF-8 section headings (`iconv` from the Ubuntu base utilities is used by the test). A disposable Ubuntu 24.04 container was also exercised; a fully booted VPS and the other advertised Ubuntu versions have not been tested by this change.
 
 ## 🔧 Optional Dependencies
 
