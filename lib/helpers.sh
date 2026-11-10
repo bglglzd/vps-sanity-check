@@ -2,6 +2,7 @@
 
 # VPS Sanity Check - Helper Functions Module
 
+# shellcheck source=lib/colors.sh
 source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
 
 # Display banner with version
@@ -22,8 +23,10 @@ EOF
 section() {
   local title="$1"
   local width=60
-  local padding=$((width - ${#title} - 2))
-  local dashes=$(printf '%*s' $padding '' | tr ' ' '─')
+  local padding
+  padding=$((width - ${#title} - 2))
+  local dashes
+  dashes=$(printf '%*s' $padding '' | tr ' ' '─')
   echo -e "\n${BOLD}${CYAN}── ${title} ${dashes}${RESET}"
 }
 
@@ -60,10 +63,14 @@ check_command() {
 
 # Get formatted uptime
 get_uptime() {
-  local uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo "0")
-  local days=$((uptime_seconds / 86400))
-  local hours=$(((uptime_seconds % 86400) / 3600))
-  local minutes=$(((uptime_seconds % 3600) / 60))
+  local uptime_seconds
+  uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo "0")
+  local days
+  days=$((uptime_seconds / 86400))
+  local hours
+  hours=$(((uptime_seconds % 86400) / 3600))
+  local minutes
+  minutes=$(((uptime_seconds % 3600) / 60))
   
   if [[ $days -gt 0 ]]; then
     echo "${days}d ${hours}h ${minutes}m"
