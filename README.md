@@ -6,10 +6,7 @@
 
 ## 🎯 Purpose
 
-Quickly and clearly verify that your VPS:
-- ✅ Is not compromised
-- ✅ Has no obvious backdoors
-- ✅ Is ready for production
+Inspect selected security settings and visible warning signs on your VPS. A report can help you decide what to investigate; it cannot establish that the machine is uncompromised or ready for production.
 
 **No ChatGPT. No "by eye".**  
 **One run → clear report.**
@@ -17,7 +14,7 @@ Quickly and clearly verify that your VPS:
 ## 🧠 Philosophy
 
 ❌ **Does NOT** promise 100% protection from the host (honest)  
-✅ **Checks EVERYTHING** that can realistically be checked from inside the VPS  
+✅ **Checks selected settings and warning signs** visible from inside the VPS<br>
 ✅ **Shows** users, sudo, SSH, network, processes, autostart, cron, package integrity  
 ✅ **Beautiful output** (colors, icons, sections)  
 ✅ **Works on** Ubuntu 20.04–24.04
@@ -159,7 +156,17 @@ sudo ./sanity-check.sh
 
 ## ⚠️ Disclaimer
 
-This tool **cannot detect hypervisor-level access** by the VPS provider. It checks everything that can be checked from inside the VPS, but the host always has access at the virtualization level. This is normal and expected for VPS services.
+This tool **cannot detect hypervisor-level access** by the VPS provider. Its checks are limited to the settings and processes visible inside the VPS; a clean report is not proof that the machine is secure.
+
+Command failures in the service and package-integrity checks are reported as warnings. A successful empty service list is shown as zero; an unavailable query is not treated as an empty list. The report uses its existing summary counters and retains the existing process exit-code behavior.
+
+## Regression checks
+
+```bash
+bash tests/check-command-failures.sh
+```
+
+These tests use synthetic `systemctl`, `getent` and `debsums` command fixtures and do not audit the host. They check real report functions, service-column parsing, empty groups, failed commands, warning/failure summary counters and UTF-8 section headings (`iconv` from the Ubuntu base utilities is used by the test). A disposable Ubuntu 24.04 container was also exercised; a fully booted VPS and the other advertised Ubuntu versions have not been tested by this change.
 
 ## 🔧 Optional Dependencies
 

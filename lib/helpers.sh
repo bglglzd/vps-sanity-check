@@ -26,7 +26,9 @@ section() {
   local padding
   padding=$((width - ${#title} - 2))
   local dashes
-  dashes=$(printf '%*s' $padding '' | tr ' ' '─')
+  # GNU tr treats the UTF-8 rule character as bytes and can emit invalid text.
+  printf -v dashes '%*s' "$padding" ''
+  dashes=${dashes// /─}
   echo -e "\n${BOLD}${CYAN}── ${title} ${dashes}${RESET}"
 }
 
