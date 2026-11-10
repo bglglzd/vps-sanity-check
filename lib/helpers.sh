@@ -26,7 +26,9 @@ section() {
   local padding
   padding=$((width - ${#title} - 2))
   local dashes
-  dashes=$(printf '%*s' $padding '' | tr ' ' '─')
+  # GNU tr treats the UTF-8 rule character as bytes and can emit invalid text.
+  printf -v dashes '%*s' "$padding" ''
+  dashes=${dashes// /─}
   echo -e "\n${BOLD}${CYAN}── ${title} ${dashes}${RESET}"
 }
 
@@ -84,11 +86,8 @@ get_uptime() {
 # Resolve symlink to real path
 resolve_symlink() {
   local path="$1"
-  if [[ -L "$path" ]]; then
-    readlink -f "$path" 2>/dev/null || echo "$path"
-  else
-    echo "$path"
-  fi
+  # Parent directories can be symlinks too, for example /bin -> /usr/bin.
+  readlink -f -- "$path" 2>/dev/null || echo "$path"
 }
 
 # Check if file is owned by a package (handles symlinks)

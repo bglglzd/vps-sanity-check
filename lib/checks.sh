@@ -136,7 +136,7 @@ check_sudo() {
   local sudo_users
   sudo_users=$(getent group sudo 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$' || true)
   local sudo_count
-  sudo_count=$(echo "$sudo_users" | grep -c . || echo "0")
+  sudo_count=$(printf '%s\n' "$sudo_users" | awk 'NF {count++} END {print count+0}')
   
   if [[ $sudo_count -eq 0 ]]; then
     info "No users in sudo group"
@@ -374,15 +374,23 @@ check_services() {
   fi
   
   local enabled_services
-  enabled_services=$(systemctl list-unit-files --type=service --state=enabled 2>/dev/null | grep -E "\.service$" | awk '{print $1}' || true)
+  if ! enabled_services=$(systemctl list-unit-files --type=service --state=enabled --no-legend --plain --no-pager 2>/dev/null); then
+    warn "Cannot check services (systemctl list-unit-files failed)"
+    return
+  fi
+  enabled_services=$(printf '%s\n' "$enabled_services" | awk '$1 ~ /\.service$/ {print $1}')
   local service_count
-  service_count=$(echo "$enabled_services" | grep -c . || echo "0")
+  service_count=$(printf '%s\n' "$enabled_services" | awk 'NF {count++} END {print count+0}')
   
   ok "Enabled services: $service_count"
   
   # Check for failed services
   local failed_services
-  failed_services=$(systemctl list-units --type=service --state=failed 2>/dev/null | grep -E "\.service$" | awk '{print $1}' || true)
+  if ! failed_services=$(systemctl list-units --type=service --state=failed --no-legend --plain --no-pager 2>/dev/null); then
+    warn "Cannot check failed services (systemctl list-units failed)"
+    return
+  fi
+  failed_services=$(printf '%s\n' "$failed_services" | awk '$1 ~ /\.service$/ {print $1}')
   if [[ -n "$failed_services" ]]; then
     warn "Failed services detected:"
     while IFS= read -r service; do
@@ -398,17 +406,20 @@ check_integrity() {
   # Check with debsums if available
   if check_command "debsums"; then
     local debsums_output
-    debsums_output=$(debsums -s 2>&1)
+    local debsums_status=0
+    debsums_output=$(debsums -s 2>&1) || debsums_status=$?
     local debsums_errors
     debsums_errors=$(echo "$debsums_output" | grep -iE "FAILED|MISSING|changed|modified" || true)
     
-    if [[ -z "$debsums_errors" ]]; then
-      ok "Package integrity: OK (debsums)"
-    else
+    if [[ -n "$debsums_errors" ]]; then
       fail "Package integrity issues detected (debsums):"
       while IFS= read -r line; do
         [[ -n "$line" ]] && print_list_item "$line"
       done <<< "$debsums_errors"
+    elif [[ $debsums_status -ne 0 ]]; then
+      warn "Cannot verify package integrity (debsums exited with status $debsums_status)"
+    else
+      ok "Package integrity: OK (debsums)"
     fi
   else
     info "debsums not installed (optional: apt-get install debsums)"
