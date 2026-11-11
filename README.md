@@ -15,14 +15,15 @@ Inspect selected security settings and visible warning signs on your VPS. A repo
 ✅ **Checks selected settings and warning signs** visible from inside the VPS<br>
 ✅ **Shows** users, sudo, SSH, network, processes, autostart, cron, package integrity  
 ✅ **Beautiful output** (colors, icons, sections)  
-✅ **Works on** Ubuntu 20.04–24.04
+✅ **Targets** Ubuntu 20.04–24.04; automated VM acceptance covers 24.04
 
 ## 🧩 Tech Stack
 
 - **bash** (maximum compatibility)
 - **awk / sed / grep**
-- **Optional:** debsums, ss, systemctl
-- **NO Python**, **NO dependencies** by default
+- **System tools:** getent, procps, find/df and standard GNU text utilities
+- **Check-specific tools:** sshd, ss, crontab, systemctl and optional debsums
+- **No Python runtime.** The checker installs no packages or services.
 
 ## 📦 Installation
 
@@ -39,6 +40,8 @@ sudo ./sanity-check.sh
 ```
 
 **Note:** The script requires root privileges to check system files and configurations.
+Unavailable or failed queries produce a warning. A report with no findings is
+limited to the selected completed checks; it cannot prove that a host is safe.
 
 ## 📋 What It Checks
 
@@ -55,14 +58,22 @@ sudo ./sanity-check.sh
 - Custom sudoers entries
 
 ### SSH Configuration
-- Root login status
-- Password authentication
-- Public key authentication
-- Authorized keys
-- SSH port
+- Global configured root/password/public-key authentication from `sshd -T`
+- Included configuration files, defaults and first-obtained-value precedence
+- Conventional `authorized_keys` inventory (counts only)
+- Configured SSH ports
+
+These are configuration-file defaults, separate from the live daemon and
+connection-specific `Match` policies. The report states that boundary. For a
+particular connection, replace the synthetic values below with the relevant
+user, peer address and hostname and inspect that context separately:
+
+```sh
+sudo /usr/sbin/sshd -T -C user=your-user,addr=192.0.2.10,host=example.invalid
+```
 
 ### Network
-- Listening ports and processes
+- TCP and UDP listeners, including UDP `UNCONN` and socket-activated listeners
 - Suspicious port numbers
 - Network listeners
 
@@ -92,6 +103,9 @@ sudo ./sanity-check.sh
 
 ## 📊 Example Output
 
+Illustrative format; actual findings depend on the inspected host. Reproducible
+checks and native VM evidence are described in [VALIDATION.md](VALIDATION.md).
+
 ```
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
@@ -113,9 +127,11 @@ sudo ./sanity-check.sh
     • deploy
 
 ── SSH ────────────────────────────────────────────────────────
-[✔] Root login: DISABLED
-[✔] Password authentication: DISABLED
-[✔] Public key authentication: ENABLED
+[ℹ] SSH global defaults from configuration files (Includes expanded)
+[ℹ] Connection-specific Match rules and the running daemon are not evaluated
+[✔] Global root login: DISABLED
+[✔] Global password authentication: DISABLED
+[✔] Global public key authentication: ENABLED
 [✔] Total authorized keys: 1
     • deploy: 1 key(s)
 
@@ -142,8 +158,8 @@ sudo ./sanity-check.sh
 [✔] Disk usage: 45%
 
 ── RESULT ──────────────────────────────────────────────────────
-[✔] STATUS: SYSTEM LOOKS CLEAN
-    ✓ No critical issues detected
+[✔] OVERALL STATUS: NO FINDINGS IN COMPLETED CHECKS
+    No findings in the selected completed checks
 
 [*] NOTE: This tool checks what can be checked from inside the VPS.
 [*] VPS host/provider may still have hypervisor-level access.

@@ -48,26 +48,26 @@ STATUS_FAILURES=0
 
 # OK - Everything is fine (green)
 ok() {
-  echo -e "${GREEN}[${ICON_OK}]${RESET} $1"
+  printf '%b[%s]%b %s\n' "$GREEN" "$ICON_OK" "$RESET" "$1"
 }
 
 # INFO - Informational message, normal system behavior (blue)
 # Does NOT increment warning counter
 info() {
-  echo -e "${BLUE}[${ICON_INFO}]${RESET} $1"
+  printf '%b[%s]%b %s\n' "$BLUE" "$ICON_INFO" "$RESET" "$1"
 }
 
 # WARN - Warning, should be reviewed (yellow)
 # Increments warning counter
 warn() {
-  echo -e "${YELLOW}[${ICON_WARN}]${RESET} $1"
+  printf '%b[%s]%b %s\n' "$YELLOW" "$ICON_WARN" "$RESET" "$1"
   STATUS_WARNINGS=$((STATUS_WARNINGS + 1))
 }
 
 # FAIL - Critical security issue (red)
 # Increments failure counter
 fail() {
-  echo -e "${RED}[${ICON_FAIL}]${RESET} $1"
+  printf '%b[%s]%b %s\n' "$RED" "$ICON_FAIL" "$RESET" "$1"
   STATUS_FAILURES=$((STATUS_FAILURES + 1))
 }
 

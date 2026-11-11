@@ -39,119 +39,89 @@ check_os() {
 # Check users - uses UID and shell logic, not hardcoded lists
 check_users() {
   section "USERS"
-  
-  local suspicious_users=()
-  local system_users=()
-  local uid0_users=()
-  local no_passwd_warn=()
-  local no_passwd_info=()
-  
-  # Read /etc/passwd and analyze each user
+  local accounts shadow shadow_available=true
+  if ! accounts=$(getent passwd 2>/dev/null) || [[ -z $accounts ]]; then
+    warn "Cannot enumerate users (getent passwd unavailable, failed or empty)"
+    return
+  fi
+  if ! shadow=$(getent shadow 2>/dev/null) || [[ -z $shadow ]]; then
+    warn "Cannot check account password status (getent shadow failed or empty)"
+    shadow_available=false
+  fi
+  local interactive=() uid0=() empty_passwords=() system_count=0 locked_system=0
+  local username uid shell kind valid=true
   while IFS=: read -r username _ uid _ _ _ shell; do
-    [[ -z "$username" ]] && continue
-    
-    # Check for UID 0 users other than root
-    if [[ $uid -eq 0 && "$username" != "root" ]]; then
-      uid0_users+=("$username")
+    [[ -n $username ]] || continue
+    if [[ ! $uid =~ ^[0-9]{1,10}$ || -z $shell ]]; then
+      warn "Cannot parse an account record"
+      valid=false
       continue
     fi
-    
-    # System users (UID < 1000) - informational only
+    uid=$((10#$uid))
+    if [[ $uid -eq 0 && $username != root ]]; then uid0+=("$username"); fi
     if [[ $uid -lt 1000 ]]; then
-      system_users+=("$username")
-      
-      # Check password status for system users (INFO level)
-      if [[ -f /etc/shadow ]]; then
-        local passwd_status
-        passwd_status=$(awk -F: -v u="$username" '$1 == u {print $2}' /etc/shadow 2>/dev/null)
-        if [[ -z "$passwd_status" || "$passwd_status" == "!" || "$passwd_status" == "*" ]]; then
-          no_passwd_info+=("$username")
-        fi
-      fi
-      continue
+      system_count=$((system_count + 1))
+    else
+      case $shell in */nologin|*/false) ;; *) interactive+=("$username (UID: $uid, Shell: $shell)") ;; esac
     fi
-    
-    # Regular users (UID >= 1000)
-    # Suspicious if shell is NOT nologin/false (i.e., has interactive shell)
-    if [[ "$shell" != "/usr/sbin/nologin" && "$shell" != "/bin/false" && "$shell" != "/sbin/nologin" ]]; then
-      suspicious_users+=("$username")
-    fi
-    
-    # Check password status for regular users (WARN level)
-    if [[ -f /etc/shadow ]]; then
-      local passwd_status
-      passwd_status=$(awk -F: -v u="$username" '$1 == u {print $2}' /etc/shadow 2>/dev/null)
-      if [[ -z "$passwd_status" || "$passwd_status" == "!" || "$passwd_status" == "*" ]]; then
-        no_passwd_warn+=("$username")
-      fi
-    fi
-  done < /etc/passwd
-  
-  # Report findings
-  if [[ ${#uid0_users[@]} -gt 0 ]]; then
+    [[ $shadow_available == true ]] || continue
+    # Emit only a classification; password hashes are never printed.
+    kind=$(printf '%s\n' "$shadow" | awk -F: -v user="$username" '
+      $1==user {found=1; if ($2=="") print "empty"; else if ($2 ~ /^[!*]/) print "locked"; else print "set"; exit}
+      END {if (!found) print "missing"}')
+    case $kind in
+      empty)
+        if [[ $uid -eq 0 ]]; then
+          fail "UID 0 account has an empty password field: $username"
+        elif [[ $uid -ge 1000 ]]; then
+          empty_passwords+=("$username")
+        fi ;;
+      locked) if [[ $uid -lt 1000 ]]; then locked_system=$((locked_system + 1)); fi ;;
+      set) ;;
+      *) warn "Cannot determine password status for $username" ;;
+    esac
+  done <<< "$accounts"
+  if [[ ${#uid0[@]} -gt 0 ]]; then
     fail "Users with UID 0 (root privileges) other than root:"
-    for user in "${uid0_users[@]}"; do
-      print_list_item "$user"
-    done
+    for username in "${uid0[@]}"; do print_list_item "$username"; done
   fi
-  
-  if [[ ${#suspicious_users[@]} -gt 0 ]]; then
+  if [[ ${#interactive[@]} -gt 0 ]]; then
     warn "Interactive user accounts (UID >= 1000 with login shell):"
-    for user in "${suspicious_users[@]}"; do
-      local uid
-      uid=$(id -u "$user" 2>/dev/null || echo "?")
-      local shell
-      shell=$(getent passwd "$user" | cut -d: -f7)
-      print_list_item "$user (UID: $uid, Shell: $shell)"
-    done
-  else
-    ok "No suspicious interactive user accounts found"
+    for username in "${interactive[@]}"; do print_list_item "$username"; done
+  elif [[ $valid == true ]]; then
+    ok "No interactive regular user accounts found"
   fi
-  
-  if [[ ${#no_passwd_warn[@]} -gt 0 ]]; then
-    warn "Regular users without passwords:"
-    for user in "${no_passwd_warn[@]}"; do
-      print_list_item "$user"
-    done
+  if [[ ${#empty_passwords[@]} -gt 0 ]]; then
+    warn "Regular users with empty password fields:"
+    for username in "${empty_passwords[@]}"; do print_list_item "$username"; done
   fi
-  
-  if [[ ${#no_passwd_info[@]} -gt 0 ]]; then
-    info "System users without passwords (expected): ${#no_passwd_info[@]}"
-  fi
-  
-  if [[ ${#system_users[@]} -gt 0 ]]; then
-    info "System users (UID < 1000): ${#system_users[@]}"
-  fi
+  info "System users (UID < 1000): $system_count; locked system passwords: $locked_system"
 }
 
 # Check sudo configuration
 check_sudo() {
   section "SUDO"
-  
-  if ! check_command "getent"; then
-    warn "Cannot check sudo users (getent not available)"
+  local group members count
+  if ! group=$(getent group sudo 2>/dev/null) || [[ ! $group =~ ^sudo:[^:]*:[0-9]+:[^:]*$ ]]; then
+    warn "Cannot check sudo users (getent group sudo failed or returned no group)"
     return
   fi
-  
-  local sudo_users
-  sudo_users=$(getent group sudo 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -v '^$' || true)
-  local sudo_count
-  sudo_count=$(printf '%s\n' "$sudo_users" | awk 'NF {count++} END {print count+0}')
-  
-  if [[ $sudo_count -eq 0 ]]; then
+  members=$(printf '%s\n' "$group" | cut -d: -f4 | tr ',' '\n')
+  count=$(printf '%s\n' "$members" | awk 'NF {count++} END {print count+0}')
+  if [[ $count -eq 0 ]]; then
     info "No users in sudo group"
   else
-    ok "Sudo users ($sudo_count):"
+    ok "Sudo users ($count):"
     while IFS= read -r user; do
-      [[ -n "$user" ]] && print_list_item "$user"
-    done <<< "$sudo_users"
+      [[ -n $user ]] && print_list_item "$user"
+    done <<< "$members"
   fi
-  
-  # Check for custom sudoers entries (informational)
   if [[ -f /etc/sudoers ]]; then
-    local sudoers_entries
-    sudoers_entries=$(grep -vE '^#|^$|^Defaults|^%' /etc/sudoers 2>/dev/null | grep -v '^@' || true)
-    if [[ -n "$sudoers_entries" ]]; then
+    local entries status=0
+    entries=$(grep -vE '^[[:space:]]*(#|$|Defaults|%|@)' /etc/sudoers 2>/dev/null) || status=$?
+    if [[ $status -gt 1 ]]; then
+      warn "Cannot read custom sudoers entries"
+    elif [[ -n $entries ]]; then
       info "Custom sudoers entries found (review recommended)"
     fi
   fi
@@ -160,207 +130,141 @@ check_sudo() {
 # Check SSH configuration
 check_ssh() {
   section "SSH"
-  
-  local sshd_config="/etc/ssh/sshd_config"
-  
-  if [[ ! -f "$sshd_config" ]]; then
-    warn "SSH config file not found"
+  local config=${1:-/etc/ssh/sshd_config} effective
+  if [[ ! -r $config ]]; then
+    warn "Cannot read SSH configuration"
     return
   fi
-  
-  # Check PermitRootLogin
-  if grep -qE "^PermitRootLogin\s+no" "$sshd_config"; then
-    ok "Root login: DISABLED"
-  elif grep -qE "^PermitRootLogin\s+yes" "$sshd_config"; then
-    fail "Root login: ENABLED (security risk)"
-  else
-    warn "Root login: not explicitly disabled (default may allow)"
+  if ! check_command sshd || ! effective=$(sshd -T -f "$config" 2>/dev/null); then
+    warn "Cannot check SSH global defaults (sshd -T unavailable or failed)"
+    return
   fi
-  
-  # Check PasswordAuthentication
-  if grep -qE "^PasswordAuthentication\s+no" "$sshd_config"; then
-    ok "Password authentication: DISABLED"
-  elif grep -qE "^PasswordAuthentication\s+yes" "$sshd_config"; then
-    warn "Password authentication: ENABLED (consider disabling)"
-  else
-    info "Password authentication: using default (usually enabled)"
-  fi
-  
-  # Check PubkeyAuthentication
-  if grep -qE "^PubkeyAuthentication\s+yes" "$sshd_config" || ! grep -qE "^PubkeyAuthentication" "$sshd_config"; then
-    ok "Public key authentication: ENABLED"
-  else
-    warn "Public key authentication: DISABLED"
-  fi
-  
-  # Check authorized keys (informational)
-  local total_keys=0
-  local key_users=()
-  
-  while IFS=: read -r username _ _ _ _ home _; do
-    [[ -z "$username" || -z "$home" ]] && continue
-    local user_keys="$home/.ssh/authorized_keys"
-    if [[ -f "$user_keys" ]]; then
-      local count
-      count=$(grep -c "^ssh-" "$user_keys" 2>/dev/null || echo "0")
-      if [[ $count -gt 0 ]]; then
-        ((total_keys += count))
-        key_users+=("$username: $count")
+  info "SSH global defaults from configuration files (Includes expanded)"
+  info "Connection-specific Match rules and the running daemon are not evaluated; review with sshd -T -C for the relevant connection."
+  local root_login password_auth public_key port
+  root_login=$(printf '%s\n' "$effective" | awk '$1 == "permitrootlogin" {n++; v=$2} END {if (n==1) print v}')
+  password_auth=$(printf '%s\n' "$effective" | awk '$1 == "passwordauthentication" {n++; v=$2} END {if (n==1) print v}')
+  public_key=$(printf '%s\n' "$effective" | awk '$1 == "pubkeyauthentication" {n++; v=$2} END {if (n==1) print v}')
+  case $root_login in
+    no) ok "Global root login: DISABLED" ;;
+    yes) fail "Global root login: ENABLED (review required)" ;;
+    prohibit-password|without-password|forced-commands-only) warn "Global root login: RESTRICTED ($root_login), not fully disabled" ;;
+    *) warn "Cannot determine global root login (incomplete sshd -T output)" ;;
+  esac
+  case $password_auth in
+    no) ok "Global password authentication: DISABLED" ;;
+    yes) warn "Global password authentication: ENABLED (consider disabling)" ;;
+    *) warn "Cannot determine global password authentication (incomplete sshd -T output)" ;;
+  esac
+  case $public_key in
+    yes) ok "Global public key authentication: ENABLED" ;;
+    no) warn "Global public key authentication: DISABLED" ;;
+    *) warn "Cannot determine global public key authentication (incomplete sshd -T output)" ;;
+  esac
+  local accounts total_keys=0 count key_file username home
+  if accounts=$(getent passwd 2>/dev/null) && [[ -n $accounts ]]; then
+    while IFS=: read -r username _ _ _ _ home _; do
+      [[ -n $username && -n $home ]] || continue
+      key_file="$home/.ssh/authorized_keys"
+      if [[ -f $key_file ]]; then
+        # Count key lines without printing their content; zero matches is success.
+        if ! count=$(awk '!/^[[:space:]]*(#|$)/ && /(^|[[:space:]])(ssh-|ecdsa-|sk-)[^[:space:]]+[[:space:]]/ {n++} END {print n+0}' "$key_file" 2>/dev/null); then
+          warn "Cannot read an authorized_keys file for $username"
+          continue
+        fi
+        total_keys=$((total_keys + count))
+        [[ $count -eq 0 ]] || print_list_item "$username: $count key(s)"
       fi
-    fi
-  done < /etc/passwd
-  
-  if [[ $total_keys -gt 0 ]]; then
-    ok "Authorized keys: $total_keys total"
-    for entry in "${key_users[@]}"; do
-      print_list_item "$entry key(s)"
-    done
+    done <<< "$accounts"
+    info "Authorized keys: $total_keys total (conventional authorized_keys files only)"
   else
-    info "No authorized keys found"
+    warn "Cannot enumerate users for authorized-key inventory"
   fi
-  
-  # Check SSH port (informational)
-  local ssh_port
-  ssh_port=$(grep -E "^Port\s+" "$sshd_config" | awk '{print $2}' | head -1)
-  if [[ -n "$ssh_port" && "$ssh_port" != "22" ]]; then
-    info "SSH listening on non-standard port: $ssh_port"
+  port=$(printf '%s\n' "$effective" | awk '$1 == "port" {print $2}')
+  if [[ -z $port ]]; then
+    warn "Cannot determine configured SSH ports (incomplete sshd -T output)"
+  else
+    info "Global configured SSH port(s): $(printf '%s\n' "$port" | paste -sd, -)"
   fi
 }
 
 # Check network listeners - fixed parsing
 check_network() {
   section "NETWORK"
-  
-  if ! check_command "ss"; then
-    warn "Cannot check network (ss command not available)"
+  local listeners
+  if ! listeners=$(ss -H -tulpn 2>/dev/null); then
+    warn "Cannot check network listeners (ss unavailable or failed)"
     return
   fi
-  
-  local listening
-  listening=$(ss -tulpn 2>/dev/null | grep LISTEN || true)
-  
-  if [[ -z "$listening" ]]; then
-    info "No listening ports found"
-    return
-  fi
-  
-  local ports_displayed=0
-  local suspicious_ports=()
-  
-  # Parse ss output properly
+  local displayed=0 protocol address port process line
+  local suspicious=()
   while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    
-    # Extract address:port from the 5th field
-    local addr_port
-    addr_port=$(echo "$line" | awk '{print $5}')
-    
-    # Skip if localhost only
-    if echo "$addr_port" | grep -qE "^127\.0\.0\.1:|^::1:"; then
+    [[ -n $line ]] || continue
+    read -r protocol _ _ _ address _ <<< "$line"
+    case $protocol in tcp|tcp6|udp|udp6) ;; *) continue ;; esac
+    case $address in 127.*:*|\[::1\]:*|::1:*) continue ;; esac
+    port=${address##*:}
+    if [[ ! $port =~ ^[0-9]+$ ]]; then
+      warn "Cannot parse a network listener port"
       continue
     fi
-    
-    # Extract port (everything after last colon)
-    local port
-    port=$(echo "$addr_port" | awk -F: '{print $NF}' | awk '{print $1}')
-    local protocol
-    protocol=$(echo "$line" | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
-    
-    # Extract process name from last field
-    local process="unknown"
-    if echo "$line" | grep -q "users:"; then
-      # Extract process name from users:((("name",pid=...)) format
-      process=$(echo "$line" | sed -n 's/.*users:((("\([^"]*\)".*/\1/p' | head -1)
-      # If that didn't work, try alternative format
-      if [[ -z "$process" || "$process" == "$line" ]]; then
-        process=$(echo "$line" | sed -n 's/.*users:((\([^,]*\).*/\1/p' | sed 's/"//g' | head -1)
-      fi
-      # Clean up - remove path, keep just basename
-      if [[ -n "$process" && "$process" != "unknown" ]]; then
-        process=$(basename "$process" 2>/dev/null || echo "$process")
-      fi
-    fi
-    
-    # Skip if port is empty
-    [[ -z "$port" || "$port" == "/" ]] && continue
-    
-    # Skip systemd/init processes
-    if [[ "$process" == "systemd" || "$process" == "init" || "$process" == "1" ]]; then
-      continue
-    fi
-    
-    # Display port
-    if [[ $ports_displayed -eq 0 ]]; then
-      ok "Listening ports:"
-      ports_displayed=1
-    fi
-    print_list_item "$port/$protocol ($process)"
-    
-    # Check for suspicious ports
-    if echo "$port" | grep -qE "^(4444|5555|6666|12345|31337|54321)$"; then
-      suspicious_ports+=("$port/$protocol")
-    fi
-  done <<< "$listening"
-  
-  if [[ $ports_displayed -eq 0 ]]; then
-    info "No external listening ports found (localhost only)"
-  fi
-  
-  # Report suspicious ports
-  if [[ ${#suspicious_ports[@]} -gt 0 ]]; then
+    process=$(printf '%s\n' "$line" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
+    [[ -n $process ]] || process=unknown
+    if [[ $displayed -eq 0 ]]; then ok "External TCP/UDP listeners:"; fi
+    displayed=$((displayed + 1))
+    print_list_item "$port/${protocol^^} ($process)"
+    case $port in 4444|5555|6666|12345|31337|54321) suspicious+=("$port/${protocol^^}") ;; esac
+  done <<< "$listeners"
+  if [[ $displayed -eq 0 ]]; then info "No external TCP/UDP listeners found"; fi
+  if [[ ${#suspicious[@]} -gt 0 ]]; then
     warn "Potentially suspicious ports detected:"
-    for port in "${suspicious_ports[@]}"; do
-      print_list_item "$port"
-    done
+    for port in "${suspicious[@]}"; do print_list_item "$port"; done
   fi
 }
 
 # Check cron jobs and autostart
 check_cron() {
   section "CRON / AUTOSTART"
-  
-  # Root crontab
-  local root_cron
-  root_cron=$(crontab -l -u root 2>/dev/null || true)
-  if [[ -n "$root_cron" ]]; then
-    local root_cron_lines
-    root_cron_lines=$(echo "$root_cron" | grep -cvE '^#|^$')
-    if [[ $root_cron_lines -gt 0 ]]; then
-      info "Root crontab entries: $root_cron_lines"
-      while IFS= read -r line; do
-        if [[ -n "$line" && ! "$line" =~ ^# ]]; then
-          print_list_item "$line"
-        fi
-      done <<< "$root_cron"
-    else
-      ok "Root crontab: empty or only comments"
-    fi
-  else
+  local root_cron status=0 count line
+  root_cron=$(LC_ALL=C crontab -l -u root 2>&1) || status=$?
+  if [[ $status -eq 1 && $root_cron == "no crontab for root" ]]; then
     ok "Root crontab: none"
-  fi
-  
-  # System-wide cron directories (informational)
-  local cron_dirs=("/etc/cron.d" "/etc/cron.daily" "/etc/cron.hourly" "/etc/cron.weekly" "/etc/cron.monthly")
-  local total_cron_files=0
-  for dir in "${cron_dirs[@]}"; do
-    if [[ -d "$dir" ]]; then
-      local files
-      files=$(find "$dir" -type f 2>/dev/null | wc -l)
-      ((total_cron_files += files))
+  elif [[ $status -ne 0 ]]; then
+    warn "Cannot check root crontab (crontab unavailable or failed)"
+  else
+    count=$(printf '%s\n' "$root_cron" | awk '!/^[[:space:]]*(#|$)/ {n++} END {print n+0}')
+    if [[ $count -eq 0 ]]; then
+      ok "Root crontab: empty or only comments"
+    else
+      info "Root crontab entries: $count"
+      while IFS= read -r line; do
+        [[ $line =~ ^[[:space:]]*(#|$) ]] || print_list_item "$line"
+      done <<< "$root_cron"
     fi
-  done
-  if [[ $total_cron_files -gt 0 ]]; then
-    info "System cron files: $total_cron_files"
   fi
-  
-  # Check for suspicious cron entries (downloading from internet)
-  local suspicious_cron
-  suspicious_cron=$(grep -rE "(wget|curl|bash|sh)\s+.*https?://" /etc/cron* 2>/dev/null | grep -vE '^#|^$' || true)
-  if [[ -n "$suspicious_cron" ]]; then
-    warn "Potentially suspicious cron entries (downloading from internet):"
-    while IFS= read -r line; do
-      [[ -n "$line" ]] && print_list_item "$line"
-    done <<< "$suspicious_cron"
+  local dirs=(/etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly)
+  local total=0 directory files targets=()
+  [[ ! -f /etc/crontab ]] || targets+=(/etc/crontab)
+  for directory in "${dirs[@]}"; do
+    [[ -d $directory ]] || continue
+    targets+=("$directory")
+    if ! files=$(find "$directory" -type f 2>/dev/null); then
+      warn "Cannot inventory cron files in $directory (find failed)"
+      continue
+    fi
+    count=$(printf '%s\n' "$files" | awk 'NF {n++} END {print n+0}')
+    total=$((total + count))
+  done
+  info "System cron files: $total"
+  if [[ ${#targets[@]} -gt 0 ]]; then
+    local suspicious
+    status=0
+    suspicious=$(grep -rE '(wget|curl|bash|sh)[[:space:]]+.*https?://' "${targets[@]}" 2>/dev/null) || status=$?
+    if [[ $status -gt 1 ]]; then warn "Cannot complete suspicious-cron scan (grep failed)"; fi
+    if [[ -n $suspicious ]]; then
+      warn "Potentially suspicious cron entries (downloading from internet):"
+      while IFS= read -r line; do print_list_item "$line"; done <<< "$suspicious"
+    fi
   fi
 }
 
@@ -456,67 +360,56 @@ check_integrity() {
 # Check processes
 check_processes() {
   section "PROCESSES"
-  
-  if ! check_command "ps"; then
-    warn "Cannot check processes (ps not available)"
+  local processes count suspicious
+  if ! processes=$(ps aux 2>/dev/null) || [[ -z $processes ]]; then
+    warn "Cannot check processes (ps unavailable, failed or returned no inventory)"
     return
   fi
-  
-  # Count root processes (informational)
-  local root_proc_count
-  root_proc_count=$(ps aux 2>/dev/null | awk '$1 == "root" {count++} END {print count+0}')
-  info "Processes running as root: $root_proc_count"
-  
-  # Check for suspicious process names (only real matches)
-  local suspicious_procs
-  # shellcheck disable=SC2009  # We intentionally use `ps aux` (not pgrep) so the
-  # report can display the full ps line (user, CPU, command) for each match.
-  suspicious_procs=$(ps aux 2>/dev/null | grep -iE "(backdoor|trojan|malware|virus|hack|exploit)" | grep -v grep || true)
-  if [[ -n "$suspicious_procs" ]]; then
+  count=$(printf '%s\n' "$processes" | awk '$1 == "root" {n++} END {print n+0}')
+  info "Processes running as root: $count"
+  suspicious=$(printf '%s\n' "$processes" | awk 'tolower($0) ~ /(backdoor|trojan|malware|virus|hack|exploit)/')
+  if [[ -n $suspicious ]]; then
     fail "Potentially suspicious processes detected:"
-    while IFS= read -r line; do
-      [[ -n "$line" ]] && print_list_item "$line"
-    done <<< "$suspicious_procs"
+    while IFS= read -r line; do print_list_item "$line"; done <<< "$suspicious"
   fi
 }
 
 # Check filesystem
 check_filesystem() {
   section "FILESYSTEM"
-  
-  # Check for world-writable files in sensitive directories
-  local sensitive_dirs=("/etc" "/usr/bin" "/usr/sbin" "/bin" "/sbin")
-  local found_writable=false
-  
-  for dir in "${sensitive_dirs[@]}"; do
-    if [[ -d "$dir" ]]; then
-      local writable
-      writable=$(find "$dir" -type f -perm -002 2>/dev/null | head -5 || true)
-      if [[ -n "$writable" ]]; then
-        if [[ "$found_writable" == false ]]; then
-          warn "World-writable files in sensitive directories:"
-          found_writable=true
-        fi
-        while IFS= read -r file; do
-          [[ -n "$file" ]] && print_list_item "$file"
-        done <<< "$writable"
-      fi
+  local dirs=(/etc /usr/bin /usr/sbin /bin /sbin)
+  local found=false complete=true directory writable disk usage
+  for directory in "${dirs[@]}"; do
+    [[ -d $directory ]] || continue
+    # awk drains find's output so a valid long result cannot become SIGPIPE.
+    if ! writable=$(find "$directory" -type f -perm -002 2>/dev/null | awk 'NR <= 5'); then
+      warn "Cannot check world-writable files in $directory (find failed)"
+      complete=false
+      continue
+    fi
+    if [[ -n $writable ]]; then
+      [[ $found == true ]] || warn "World-writable files in sensitive directories:"
+      found=true
+      while IFS= read -r file; do print_list_item "$file"; done <<< "$writable"
     fi
   done
-  
-  if [[ "$found_writable" == false ]]; then
+  if [[ $found == false && $complete == true ]]; then
     ok "No world-writable files in sensitive directories"
   fi
-  
-  # Check disk usage
-  local disk_usage
-  disk_usage=$(df -h / 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
-  if [[ $disk_usage -gt 90 ]]; then
-    warn "Disk usage: ${disk_usage}% (critical)"
-  elif [[ $disk_usage -gt 80 ]]; then
-    warn "Disk usage: ${disk_usage}% (high)"
+  if ! disk=$(df -P / 2>/dev/null); then
+    warn "Cannot check disk usage (df unavailable or failed)"
+    return
+  fi
+  usage=$(printf '%s\n' "$disk" | awk 'NR==2 {print $(NF-1)}')
+  usage=${usage%\%}
+  if [[ ! $usage =~ ^[0-9]{1,3}$ ]]; then
+    warn "Cannot determine disk usage (unexpected df output)"
+  elif [[ $((10#$usage)) -gt 90 ]]; then
+    warn "Disk usage: ${usage}% (critical)"
+  elif [[ $((10#$usage)) -gt 80 ]]; then
+    warn "Disk usage: ${usage}% (high)"
   else
-    ok "Disk usage: ${disk_usage}%"
+    ok "Disk usage: ${usage}%"
   fi
 }
 
@@ -546,9 +439,9 @@ summary() {
     info "System appears functional, but some items should be reviewed."
   else
     echo ""
-    ok "🟢 OVERALL STATUS: SYSTEM CLEAN"
+    ok "🟢 OVERALL STATUS: NO FINDINGS IN COMPLETED CHECKS"
     echo ""
-    ok "No critical issues or warnings detected."
+    ok "No findings in the selected completed checks; this does not establish that the system is uncompromised."
   fi
   
   echo ""

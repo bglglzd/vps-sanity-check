@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
 
 # Display banner with version
 banner() {
-  clear
+  if [[ -t 1 && -n ${TERM:-} ]]; then clear; fi
   cat <<EOF
 ${BOLD}${CYAN}
 ╔══════════════════════════════════════════════════════════════╗
@@ -39,7 +39,7 @@ sub_section() {
 
 # Print list item with bullet
 print_list_item() {
-  echo -e "    ${CYAN}•${RESET} $1"
+  printf '    %b•%b %s\n' "$CYAN" "$RESET" "$1"
 }
 
 # Print table row (for structured data)
