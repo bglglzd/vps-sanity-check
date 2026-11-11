@@ -30,7 +30,7 @@ main() {
   check_os
   check_users
   check_sudo
-  check_ssh
+  check_ssh /etc/ssh/sshd_config
   check_network
   check_processes
   check_cron

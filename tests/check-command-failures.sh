@@ -2,10 +2,14 @@
 # Synthetic command fixtures; this test never audits the host.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=lib/checks.sh
-source "$ROOT/lib/checks.sh"
 fixture_dir=$(mktemp -d)
 trap 'rm -rf "$fixture_dir"' EXIT
+# shellcheck source=tests/fixture-lib.sh
+source "$ROOT/tests/fixture-lib.sh"
+prepare_fixture_library "$ROOT" "$fixture_dir"
+# The test library has the exact report logic with host paths remapped.
+# shellcheck source=/dev/null
+source "$fixture_dir/library/checks.sh"
 passed=0
 failed=0
 

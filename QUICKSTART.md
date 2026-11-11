@@ -25,8 +25,9 @@ The script will check:
 1. **System Information** - OS, kernel, uptime
 2. **Users** - Suspicious accounts, UID 0 users, users without passwords
 3. **Sudo** - Users with sudo access
-4. **SSH** - Configuration security (root login, password auth, keys)
-5. **Network** - Listening ports and processes
+4. **SSH** - Global configuration defaults, expanded Includes and key counts;
+   per-connection Match rules and the live daemon require separate review
+5. **Network** - TCP/UDP listeners and processes
 6. **Processes** - Running processes, suspicious activity
 7. **Cron** - Scheduled tasks and autostart
 8. **Services** - Enabled system services
@@ -35,7 +36,7 @@ The script will check:
 
 ## Understanding the Results
 
-- **[✔] Green** - Everything looks good
+- **[✔] Green** - A selected check completed without a finding
 - **[!] Yellow** - Warning, should be reviewed
 - **[✘] Red** - Critical issue found
 - **[*] Blue** - Informational message
@@ -44,9 +45,14 @@ The script will check:
 
 At the end, you'll see one of three statuses:
 
-- **🟢 SYSTEM LOOKS CLEAN** - No issues detected
-- **🟡 SYSTEM LOOKS MOSTLY CLEAN** - Some warnings, review recommended
-- **🔴 SYSTEM HAS ISSUES** - Critical problems found
+- **NO FINDINGS IN COMPLETED CHECKS** - No findings in the selected completed checks
+- **REVIEW RECOMMENDED** - Warnings or unavailable checks require review
+- **ATTENTION REQUIRED** - A critical finding was detected
+
+The report cannot establish that a host is uncompromised. SSH output describes
+global file defaults from `sshd -T`, not all `Match` contexts or the live daemon.
+See [README](README.md#ssh-configuration) for a per-connection query and
+[VALIDATION](VALIDATION.md) for the tested scope.
 
 ## Optional: Install debsums
 
@@ -66,9 +72,9 @@ sudo ./sanity-check.sh
 ```
 
 ### "Command not found: ss"
-Install net-tools:
+Install iproute2:
 ```bash
-sudo apt-get install net-tools iproute2
+sudo apt-get install iproute2
 ```
 
 ### "debsums not installed"
